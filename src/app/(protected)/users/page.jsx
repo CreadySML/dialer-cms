@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { useCachedQuery, invalidateCache } from "@/lib/cache";
+import { TableSkeleton, Spinner } from "@/components/Loader";
 
 const ROLE_OPTIONS = {
   superadmin: ["manager", "agent"],
@@ -11,8 +13,6 @@ const ROLE_OPTIONS = {
 
 export default function UsersPage() {
   const { user } = useAuth();
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -24,21 +24,10 @@ export default function UsersPage() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { users } = await api.get("/users");
-      setUsers(users);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, loading, refetch: load } = useCachedQuery("/users", {
+    staleTime: 5 * 60 * 1000,
+  });
+  const users = data?.users || [];
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -54,6 +43,7 @@ export default function UsersPage() {
         role: ROLE_OPTIONS[user.role][0],
       });
       setShowForm(false);
+      invalidateCache("/users");
       await load();
     } catch (err) {
       setError(err.message);
@@ -65,22 +55,26 @@ export default function UsersPage() {
   const canCreate = ROLE_OPTIONS[user?.role]?.length > 0;
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Users</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Team</h1>
+          <p className="mt-1 text-sm text-slate-500">
             {user.role === "superadmin"
-              ? "All users across the system"
-              : "Agents you created"}
+              ? "Manage every user across the workspace"
+              : "Agents working under you"}
           </p>
         </div>
         {canCreate && (
           <button
             onClick={() => setShowForm((s) => !s)}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+              showForm
+                ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                : "brand-gradient text-white shadow-md shadow-indigo-500/30 hover:shadow-lg"
+            }`}
           >
-            {showForm ? "Cancel" : `+ Create ${ROLE_OPTIONS[user.role][0]}`}
+            {showForm ? "Cancel" : `+ New ${ROLE_OPTIONS[user.role][0]}`}
           </button>
         )}
       </div>
@@ -94,18 +88,48 @@ export default function UsersPage() {
       {showForm && (
         <form
           onSubmit={handleSubmit}
+          autoComplete="off"
           className="mb-6 grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-5 sm:grid-cols-2"
         >
-          <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-          <Field label="Email" type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} required />
-          <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
-          <Field label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
+          <Field
+            label="Name"
+            placeholder="e.g. Rahul Sharma"
+            value={form.name}
+            onChange={(v) => setForm({ ...form, name: v })}
+            required
+            autoComplete="off"
+          />
+          <Field
+            label="Email"
+            type="email"
+            placeholder="rahul@company.com"
+            value={form.email}
+            onChange={(v) => setForm({ ...form, email: v })}
+            required
+            autoComplete="off"
+          />
+          <Field
+            label="Password"
+            type="password"
+            placeholder="Min 6 characters"
+            value={form.password}
+            onChange={(v) => setForm({ ...form, password: v })}
+            required
+            autoComplete="new-password"
+          />
+          <Field
+            label="Phone"
+            placeholder="10-digit mobile"
+            value={form.phone}
+            onChange={(v) => setForm({ ...form, phone: v })}
+            autoComplete="off"
+          />
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Role</label>
             <select
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               {ROLE_OPTIONS[user.role].map((r) => (
                 <option key={r} value={r}>{r}</option>
@@ -116,17 +140,18 @@ export default function UsersPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
             >
+              {submitting && <Spinner className="h-4 w-4 text-white" />}
               {submitting ? "Creating…" : "Create user"}
             </button>
           </div>
         </form>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <thead className="bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             <tr>
               <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Name</th>
@@ -137,16 +162,24 @@ export default function UsersPage() {
               <th className="px-4 py-3">Created</th>
             </tr>
           </thead>
+          {loading && users.length === 0 ? (
+            <TableSkeleton rows={5} cols={6} />
+          ) : (
           <tbody className="divide-y divide-slate-100">
-            {loading ? (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">Loading…</td></tr>
-            ) : users.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">No users yet</td></tr>
+            {users.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No users yet</td></tr>
             ) : (
               users.map((u) => (
-                <tr key={u.id}>
-                  <td className="px-4 py-3 text-slate-500">{u.id}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{u.name}</td>
+                <tr key={u.id} className="transition hover:bg-slate-50/60">
+                  <td className="px-4 py-3 text-slate-400">#{u.id}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="brand-gradient-soft grid h-8 w-8 place-items-center rounded-full text-xs font-semibold text-indigo-700">
+                        {u.name?.[0]?.toUpperCase()}
+                      </div>
+                      <span className="font-medium text-slate-900">{u.name}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
@@ -170,13 +203,14 @@ export default function UsersPage() {
               ))
             )}
           </tbody>
+          )}
         </table>
       </div>
     </div>
   );
 }
 
-function Field({ label, value, onChange, type = "text", required }) {
+function Field({ label, value, onChange, type = "text", required, autoComplete, placeholder }) {
   return (
     <div>
       <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
@@ -185,7 +219,9 @@ function Field({ label, value, onChange, type = "text", required }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
       />
     </div>
   );

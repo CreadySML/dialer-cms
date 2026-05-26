@@ -3,12 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { IconDashboard, IconUsers, IconPhone, IconBrand, IconCalendar } from "./icons";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", roles: ["superadmin", "manager", "agent"] },
-  { href: "/users", label: "Users", roles: ["superadmin", "manager"] },
-  { href: "/leads", label: "Leads", roles: ["superadmin", "manager", "agent"] },
+  { href: "/dashboard", label: "Dashboard", icon: IconDashboard, roles: ["superadmin", "manager", "agent"] },
+  { href: "/users", label: "Team", icon: IconUsers, roles: ["superadmin", "manager"] },
+  { href: "/leads", label: "Leads", icon: IconPhone, roles: ["superadmin", "manager", "agent"] },
+  { href: "/callbacks", label: "Callbacks", icon: IconCalendar, roles: ["superadmin", "manager", "agent"] },
 ];
+
+function initials(name = "") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase();
+}
 
 export default function Sidebar() {
   const { user } = useAuth();
@@ -17,34 +29,50 @@ export default function Sidebar() {
   const visible = NAV.filter((n) => n.roles.includes(user?.role));
 
   return (
-    <aside className="hidden w-60 flex-shrink-0 border-r border-slate-200 bg-white md:flex md:flex-col">
-      <div className="border-b border-slate-200 px-5 py-5">
-        <div className="text-lg font-bold text-slate-900">LMS Dialer</div>
-        <div className="text-xs text-slate-500">Call center CRM</div>
+    <aside className="hidden w-56 flex-shrink-0 flex-col border-r border-slate-800/50 bg-slate-950 md:flex">
+      <div className="flex items-center gap-3 border-b border-slate-800/50 px-5 py-5">
+        <IconBrand className="h-9 w-9" />
+        <div>
+          <div className="text-base font-semibold tracking-tight text-white">DialerOne</div>
+          <div className="text-[11px] uppercase tracking-wider text-slate-500">Lead Management</div>
+        </div>
       </div>
+
       <nav className="flex-1 space-y-1 p-3">
+        <div className="px-3 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Workspace
+        </div>
         {visible.map((item) => {
+          const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`block rounded-md px-3 py-2 text-sm transition ${
+              className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
                 active
-                  ? "bg-blue-50 font-medium text-blue-700"
-                  : "text-slate-700 hover:bg-slate-100"
+                  ? "bg-indigo-500/10 text-white shadow-[inset_0_0_0_1px_rgba(99,102,241,0.3)]"
+                  : "text-slate-400 hover:bg-slate-800/50 hover:text-white"
               }`}
             >
-              {item.label}
+              <Icon className={`h-4.5 w-4.5 transition ${active ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"}`} style={{ width: "18px", height: "18px" }} />
+              <span className="font-medium">{item.label}</span>
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-indigo-400" />}
             </Link>
           );
         })}
       </nav>
-      <div className="border-t border-slate-200 p-4 text-xs text-slate-500">
-        Role:{" "}
-        <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-700">
-          {user?.role}
-        </span>
+
+      <div className="border-t border-slate-800/50 p-4">
+        <div className="flex items-center gap-3 rounded-lg bg-slate-900/50 p-3">
+          <div className="brand-gradient flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold text-white shadow-lg shadow-indigo-500/20">
+            {initials(user?.name) || "U"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-white">{user?.name}</div>
+            <div className="truncate text-[11px] capitalize text-slate-500">{user?.role}</div>
+          </div>
+        </div>
       </div>
     </aside>
   );
