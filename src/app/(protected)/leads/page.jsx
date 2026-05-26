@@ -82,6 +82,7 @@ const formatINR = (v) => (v == null || v === "" ? "—" : `₹${INR.format(v)}`)
 
 const EMPTY_FILTERS = {
   stage: "",
+  disposition: "",
   pincode: "",
   loanPurpose: "",
   minLoanAmount: "",

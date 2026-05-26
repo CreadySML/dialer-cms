@@ -27,7 +27,9 @@ export default function ProtectedLayout({ children }) {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--background)]">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* overflow-visible here so TopBar dropdowns can render outside the header.
+          main still clips its own scroll, preserving the fixed-frame layout. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-visible">
         <TopBar />
         <main className="min-w-0 flex-1 overflow-hidden px-4 py-3 lg:px-6 lg:py-4">{children}</main>
       </div>

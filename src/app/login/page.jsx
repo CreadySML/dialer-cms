@@ -48,7 +48,7 @@ export default function LoginPage() {
         <div className="relative flex items-center gap-3">
           <IconBrand className="h-10 w-10" />
           <div>
-            <div className="text-lg font-semibold">DialerOne</div>
+            <div className="text-lg font-semibold">Cready</div>
             <div className="text-xs uppercase tracking-wider text-indigo-100/70">
               Lead Management Suite
             </div>

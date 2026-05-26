@@ -33,7 +33,7 @@ export default function Sidebar() {
       <div className="flex items-center gap-3 border-b border-slate-800/50 px-5 py-5">
         <IconBrand className="h-9 w-9" />
         <div>
-          <div className="text-base font-semibold tracking-tight text-white">DialerOne</div>
+          <div className="text-base font-semibold tracking-tight text-white">Cready LMS</div>
           <div className="text-[11px] uppercase tracking-wider text-slate-500">Lead Management</div>
         </div>
       </div>
