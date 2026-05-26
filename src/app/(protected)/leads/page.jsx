@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { useCachedQuery, invalidateCache } from "@/lib/cache";
 import { Spinner, TableSkeleton, OverlaySpinner } from "@/components/Loader";
+import { IconFilter, IconX, IconSearch } from "@/components/icons";
 
 const STAGES = [
   "new",
@@ -95,6 +96,29 @@ function hasAnyFilter(f) {
   return Object.values(f).some((v) => v !== "" && v != null);
 }
 
+// Range presets — Indian numbering (k / L / Cr)
+const LOAN_PRESETS = [
+  { label: "< 1L",     min: 0,       max: 100000 },
+  { label: "1L – 5L",  min: 100000,  max: 500000 },
+  { label: "5L – 10L", min: 500000,  max: 1000000 },
+  { label: "10L – 25L",min: 1000000, max: 2500000 },
+  { label: "25L+",     min: 2500000, max: null },
+];
+
+const SALARY_PRESETS = [
+  { label: "< 25k",     min: 0,      max: 25000 },
+  { label: "25k – 50k", min: 25000,  max: 50000 },
+  { label: "50k – 1L",  min: 50000,  max: 100000 },
+  { label: "1L – 2L",   min: 100000, max: 200000 },
+  { label: "2L+",       min: 200000, max: null },
+];
+
+function isPresetActive(currentMin, currentMax, preset) {
+  const min = currentMin === "" || currentMin == null ? null : Number(currentMin);
+  const max = currentMax === "" || currentMax == null ? null : Number(currentMax);
+  return (min === preset.min || (preset.min === 0 && min == null)) && max === preset.max;
+}
+
 export default function LeadsPage() {
   const { user } = useAuth();
   const [error, setError] = useState("");
@@ -140,6 +164,10 @@ export default function LeadsPage() {
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const someSelected = selectedIds.size > 0 && !allVisibleSelected;
   const filtered = hasAnyFilter(filters);
+  const activeFilterCount = useMemo(
+    () => Object.values(filters).filter((v) => v !== "" && v != null).length,
+    [filters]
+  );
 
   function toggleOne(id) {
     setSelectedIds((prev) => {
@@ -268,88 +296,226 @@ export default function LeadsPage() {
       )}
 
       <div className="mb-3 flex-shrink-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={filters.stage}
-            onChange={(e) => setFilters({ ...filters, stage: e.target.value })}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900"
-          >
-            <option value="">All stages</option>
-            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+        {/* Header row */}
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconFilter className="h-3.5 w-3.5 text-slate-500" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Filters
+            </span>
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                {activeFilterCount} active
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {filtered && (
+              <button
+                onClick={() => setFilters(EMPTY_FILTERS)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-rose-600"
+              >
+                <IconX className="h-3 w-3" /> Clear all
+              </button>
+            )}
+            {canAssign && filtered && total > 0 && (
+              <button
+                onClick={handleAssignAllFiltered}
+                disabled={bulkBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                {bulkBusy ? (
+                  <><Spinner className="h-3 w-3 text-white" /> Distributing…</>
+                ) : (
+                  <>⚡ Auto-distribute {total.toLocaleString("en-IN")}</>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
 
-          <input
-            placeholder="Pincode…"
-            value={filters.pincode}
-            onChange={(e) => setFilters({ ...filters, pincode: e.target.value })}
-            className="w-28 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900"
-          />
-          <input
-            placeholder="Loan purpose…"
-            value={filters.loanPurpose}
-            onChange={(e) => setFilters({ ...filters, loanPurpose: e.target.value })}
-            className="w-36 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900"
-          />
-
-          <div className="flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1">
-            <span className="text-[11px] font-medium text-slate-500">Loan ₹</span>
-            <input
-              type="number"
-              placeholder="Min"
-              value={filters.minLoanAmount}
-              onChange={(e) => setFilters({ ...filters, minLoanAmount: e.target.value })}
-              className="w-16 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-            />
-            <span className="text-slate-400">–</span>
-            <input
-              type="number"
-              placeholder="Max"
-              value={filters.maxLoanAmount}
-              onChange={(e) => setFilters({ ...filters, maxLoanAmount: e.target.value })}
-              className="w-16 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-            />
+        {/* Filter inputs */}
+        <div className="flex flex-wrap items-start gap-3">
+          {/* Stage */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Stage</label>
+            <select
+              value={filters.stage}
+              onChange={(e) => setFilters({ ...filters, stage: e.target.value })}
+              className={`rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                filters.stage ? "border-indigo-300 bg-indigo-50/40 font-semibold" : "border-slate-300"
+              }`}
+            >
+              <option value="">All stages</option>
+              {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
 
-          <div className="flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-1">
-            <span className="text-[11px] font-medium text-slate-500">Salary ₹</span>
-            <input
-              type="number"
-              placeholder="Min"
-              value={filters.minSalary}
-              onChange={(e) => setFilters({ ...filters, minSalary: e.target.value })}
-              className="w-16 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-            />
-            <span className="text-slate-400">–</span>
-            <input
-              type="number"
-              placeholder="Max"
-              value={filters.maxSalary}
-              onChange={(e) => setFilters({ ...filters, maxSalary: e.target.value })}
-              className="w-16 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-            />
-          </div>
-
-          {filtered && (
-            <button
-              onClick={() => setFilters(EMPTY_FILTERS)}
-              className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
-            >
-              Clear
-            </button>
-          )}
-          {canAssign && filtered && total > 0 && (
-            <button
-              onClick={handleAssignAllFiltered}
-              disabled={bulkBusy}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-            >
-              {bulkBusy ? (
-                <><Spinner className="h-3 w-3 text-white" /> Distributing…</>
-              ) : (
-                <>⚡ Auto-distribute {total.toLocaleString("en-IN")}</>
+          {/* Pincode */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Pincode</label>
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+              <input
+                placeholder="e.g. 400001"
+                value={filters.pincode}
+                onChange={(e) => setFilters({ ...filters, pincode: e.target.value })}
+                className={`w-36 rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                  filters.pincode ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
+                }`}
+              />
+              {filters.pincode && (
+                <button
+                  onClick={() => setFilters({ ...filters, pincode: "" })}
+                  className="absolute right-1.5 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Clear pincode"
+                >
+                  <IconX className="h-2.5 w-2.5" />
+                </button>
               )}
-            </button>
-          )}
+            </div>
+          </div>
+
+          {/* Loan purpose */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Loan Purpose</label>
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+              <input
+                placeholder="e.g. home loan"
+                value={filters.loanPurpose}
+                onChange={(e) => setFilters({ ...filters, loanPurpose: e.target.value })}
+                className={`w-44 rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                  filters.loanPurpose ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
+                }`}
+              />
+              {filters.loanPurpose && (
+                <button
+                  onClick={() => setFilters({ ...filters, loanPurpose: "" })}
+                  className="absolute right-1.5 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Clear loan purpose"
+                >
+                  <IconX className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Loan amount range */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Loan Amount (₹)</label>
+            <div className={`flex items-center gap-1 rounded-md border bg-white px-2 py-1 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 ${
+              (filters.minLoanAmount || filters.maxLoanAmount) ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
+            }`}>
+              <input
+                type="number"
+                placeholder="Min"
+                value={filters.minLoanAmount}
+                onChange={(e) => setFilters({ ...filters, minLoanAmount: e.target.value })}
+                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+              />
+              <span className="text-slate-400">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={filters.maxLoanAmount}
+                onChange={(e) => setFilters({ ...filters, maxLoanAmount: e.target.value })}
+                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+              />
+              {(filters.minLoanAmount || filters.maxLoanAmount) && (
+                <button
+                  onClick={() => setFilters({ ...filters, minLoanAmount: "", maxLoanAmount: "" })}
+                  className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Clear loan range"
+                >
+                  <IconX className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {LOAN_PRESETS.map((p) => {
+                const active = isPresetActive(filters.minLoanAmount, filters.maxLoanAmount, p);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() =>
+                      setFilters({
+                        ...filters,
+                        minLoanAmount: active ? "" : String(p.min),
+                        maxLoanAmount: active ? "" : (p.max != null ? String(p.max) : ""),
+                      })
+                    }
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                      active
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Salary range */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Salary (₹)</label>
+            <div className={`flex items-center gap-1 rounded-md border bg-white px-2 py-1 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 ${
+              (filters.minSalary || filters.maxSalary) ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
+            }`}>
+              <input
+                type="number"
+                placeholder="Min"
+                value={filters.minSalary}
+                onChange={(e) => setFilters({ ...filters, minSalary: e.target.value })}
+                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+              />
+              <span className="text-slate-400">–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={filters.maxSalary}
+                onChange={(e) => setFilters({ ...filters, maxSalary: e.target.value })}
+                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+              />
+              {(filters.minSalary || filters.maxSalary) && (
+                <button
+                  onClick={() => setFilters({ ...filters, minSalary: "", maxSalary: "" })}
+                  className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Clear salary range"
+                >
+                  <IconX className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {SALARY_PRESETS.map((p) => {
+                const active = isPresetActive(filters.minSalary, filters.maxSalary, p);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() =>
+                      setFilters({
+                        ...filters,
+                        minSalary: active ? "" : String(p.min),
+                        maxSalary: active ? "" : (p.max != null ? String(p.max) : ""),
+                      })
+                    }
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                      active
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
