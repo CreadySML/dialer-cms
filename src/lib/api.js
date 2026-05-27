@@ -1,4 +1,18 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001/api";
+/**
+ * API base URL resolution:
+ *   1. NEXT_PUBLIC_API_URL env var (build-time) wins if set.
+ *   2. Otherwise derive from current window hostname → enables LAN access
+ *      (friend on another machine hits the dev box at its LAN IP).
+ *   3. SSR fallback to localhost (rarely used since pages are client-side).
+ */
+function resolveBaseUrl() {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:5001/api`;
+  }
+  return "http://localhost:5001/api";
+}
+
 const TOKEN_KEY = "lms_token";
 
 export function getToken() {
@@ -14,7 +28,7 @@ export function setToken(token) {
 
 export async function apiFetch(path, { method = "GET", body, headers = {} } = {}) {
   const token = getToken();
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${resolveBaseUrl()}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",

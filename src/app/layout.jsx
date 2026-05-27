@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata = {
-  title: "Creadt — Lead Management",
+  title: "Cready — Lead Management",
   description: "Premium dialer + lead management for call centers",
 };
 

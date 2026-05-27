@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
 import { useCachedQuery, invalidateCache } from "@/lib/cache";
 import { TableSkeleton, Spinner } from "@/components/Loader";
+import UserEditModal from "@/components/UserEditModal";
 
 const ROLE_OPTIONS = {
   superadmin: ["manager", "agent"],
@@ -23,6 +24,18 @@ export default function UsersPage() {
     role: ROLE_OPTIONS[user?.role]?.[0] || "agent",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+
+  async function handleEditSaved() {
+    invalidateCache("/users");
+    await load();
+  }
+
+  const canEdit = (u) => {
+    if (user?.role === "superadmin") return true;
+    if (user?.role === "manager") return u.createdBy === user.id;
+    return false;
+  };
 
   const { data, loading, refetch: load } = useCachedQuery("/users", {
     staleTime: 5 * 60 * 1000,
@@ -160,14 +173,15 @@ export default function UsersPage() {
               <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           {loading && users.length === 0 ? (
-            <TableSkeleton rows={5} cols={6} />
+            <TableSkeleton rows={5} cols={7} />
           ) : (
           <tbody className="divide-y divide-slate-100">
             {users.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">No users yet</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">No users yet</td></tr>
             ) : (
               users.map((u) => (
                 <tr key={u.id} className="transition hover:bg-slate-50/60">
@@ -199,6 +213,18 @@ export default function UsersPage() {
                   <td className="px-4 py-3 text-slate-500">
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
+                  <td className="px-4 py-3">
+                    {canEdit(u) ? (
+                      <button
+                        onClick={() => setEditUser(u)}
+                        className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
@@ -206,6 +232,14 @@ export default function UsersPage() {
           )}
         </table>
       </div>
+
+      {editUser && (
+        <UserEditModal
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onSaved={handleEditSaved}
+        />
+      )}
     </div>
   );
 }

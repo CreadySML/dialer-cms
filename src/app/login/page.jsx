@@ -77,7 +77,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative text-xs text-indigo-100/60">
-          © {new Date().getFullYear()} DialerOne · Built for modern call centers
+          © {new Date().getFullYear()} Cready · Built for modern call centers
         </div>
       </div>
 
@@ -150,14 +150,14 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          {/* <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
               Demo super admin
             </div>
             <div className="mt-1 font-mono text-xs text-slate-700">
               admin@lms.local · Admin@12345
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </main>

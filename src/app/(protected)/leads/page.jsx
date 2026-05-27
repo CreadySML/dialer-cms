@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useCachedQuery, invalidateCache } from "@/lib/cache";
 import { Spinner, TableSkeleton, OverlaySpinner } from "@/components/Loader";
 import { IconFilter, IconX, IconSearch } from "@/components/icons";
+import LeadUpdateModal from "@/components/LeadUpdateModal";
 
 const STAGES = [
   "new",
@@ -82,8 +83,10 @@ const INR = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const formatINR = (v) => (v == null || v === "" ? "—" : `₹${INR.format(v)}`);
 
 const EMPTY_FILTERS = {
+  search: "",
   stage: "",
   disposition: "",
+  assignedTo: "",
   pincode: "",
   loanPurpose: "",
   minLoanAmount: "",
@@ -119,6 +122,11 @@ function isPresetActive(currentMin, currentMax, preset) {
   return (min === preset.min || (preset.min === 0 && min == null)) && max === preset.max;
 }
 
+function activePresetLabel(min, max, presets) {
+  const found = presets.find((p) => isPresetActive(min, max, p));
+  return found ? found.label : "";
+}
+
 export default function LeadsPage() {
   const { user } = useAuth();
   const [error, setError] = useState("");
@@ -126,8 +134,16 @@ export default function LeadsPage() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({});
+  const [modalLead, setModalLead] = useState(null);
+  const [searchInput, setSearchInput] = useState("");
+
+  // Debounce search input → filters.search (350ms)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters((f) => (f.search === searchInput ? f : { ...f, search: searchInput }));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkAgentId, setBulkAgentId] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -147,6 +163,7 @@ export default function LeadsPage() {
   const leads = leadsRes?.leads || [];
   const total = leadsRes?.total ?? 0;
   const totalPages = leadsRes?.totalPages ?? 1;
+  const assignedToCounts = leadsRes?.assignedToCounts || {};
 
   // Cached agents list (rarely changes)
   const { data: agentsRes } = useCachedQuery(canAssign ? "/users?role=agent" : null, {
@@ -208,16 +225,9 @@ export default function LeadsPage() {
     }
   }
 
-  async function handleStatusSave(leadId) {
-    try {
-      await api.patch(`/leads/${leadId}/status`, editForm);
-      setEditingId(null);
-      setEditForm({});
-      invalidateLeadCaches();
-      await load();
-    } catch (err) {
-      setError(err.message);
-    }
+  async function handleModalSaved() {
+    invalidateLeadCaches();
+    await load();
   }
 
   async function runBulk(payload) {
@@ -312,7 +322,10 @@ export default function LeadsPage() {
           <div className="flex items-center gap-2">
             {filtered && (
               <button
-                onClick={() => setFilters(EMPTY_FILTERS)}
+                onClick={() => {
+                  setFilters(EMPTY_FILTERS);
+                  setSearchInput("");
+                }}
                 className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-rose-600"
               >
                 <IconX className="h-3 w-3" /> Clear all
@@ -334,15 +347,40 @@ export default function LeadsPage() {
           </div>
         </div>
 
-        {/* Filter inputs */}
-        <div className="flex flex-wrap items-start gap-3">
+        {/* Search bar — searches name, phone, email */}
+        <div className="mb-3">
+          <div className="relative">
+            <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by name, phone, or email…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className={`w-full rounded-lg border bg-white py-2 pl-10 pr-9 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                searchInput ? "border-indigo-300" : "border-slate-300"
+              }`}
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Clear search"
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* All filters in one row on large screens */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {/* Stage */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Stage</label>
             <select
               value={filters.stage}
               onChange={(e) => setFilters({ ...filters, stage: e.target.value })}
-              className={`rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+              className={`w-full rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
                 filters.stage ? "border-indigo-300 bg-indigo-50/40 font-semibold" : "border-slate-300"
               }`}
             >
@@ -350,6 +388,27 @@ export default function LeadsPage() {
               {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+
+          {/* Assigned agent */}
+          {canAssign && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Assigned Agent</label>
+              <select
+                value={filters.assignedTo}
+                onChange={(e) => setFilters({ ...filters, assignedTo: e.target.value })}
+                className={`w-full rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                  filters.assignedTo ? "border-indigo-300 bg-indigo-50/40 font-semibold" : "border-slate-300"
+                }`}
+              >
+                <option value="">All agents</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({assignedToCounts[a.id] || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Pincode */}
           <div className="flex flex-col gap-1">
@@ -360,7 +419,7 @@ export default function LeadsPage() {
                 placeholder="e.g. 400001"
                 value={filters.pincode}
                 onChange={(e) => setFilters({ ...filters, pincode: e.target.value })}
-                className={`w-36 rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                className={`w-full rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
                   filters.pincode ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
                 }`}
               />
@@ -385,7 +444,7 @@ export default function LeadsPage() {
                 placeholder="e.g. home loan"
                 value={filters.loanPurpose}
                 onChange={(e) => setFilters({ ...filters, loanPurpose: e.target.value })}
-                className={`w-44 rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                className={`w-full rounded-md border bg-white py-1.5 pl-7 pr-7 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
                   filters.loanPurpose ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
                 }`}
               />
@@ -401,120 +460,52 @@ export default function LeadsPage() {
             </div>
           </div>
 
-          {/* Loan amount range */}
+          {/* Loan amount */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Loan Amount (₹)</label>
-            <div className={`flex items-center gap-1 rounded-md border bg-white px-2 py-1 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 ${
-              (filters.minLoanAmount || filters.maxLoanAmount) ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
-            }`}>
-              <input
-                type="number"
-                placeholder="Min"
-                value={filters.minLoanAmount}
-                onChange={(e) => setFilters({ ...filters, minLoanAmount: e.target.value })}
-                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-              />
-              <span className="text-slate-400">–</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={filters.maxLoanAmount}
-                onChange={(e) => setFilters({ ...filters, maxLoanAmount: e.target.value })}
-                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-              />
-              {(filters.minLoanAmount || filters.maxLoanAmount) && (
-                <button
-                  onClick={() => setFilters({ ...filters, minLoanAmount: "", maxLoanAmount: "" })}
-                  className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  aria-label="Clear loan range"
-                >
-                  <IconX className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {LOAN_PRESETS.map((p) => {
-                const active = isPresetActive(filters.minLoanAmount, filters.maxLoanAmount, p);
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() =>
-                      setFilters({
-                        ...filters,
-                        minLoanAmount: active ? "" : String(p.min),
-                        maxLoanAmount: active ? "" : (p.max != null ? String(p.max) : ""),
-                      })
-                    }
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
-                      active
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
+            <select
+              value={activePresetLabel(filters.minLoanAmount, filters.maxLoanAmount, LOAN_PRESETS)}
+              onChange={(e) => {
+                const preset = LOAN_PRESETS.find((p) => p.label === e.target.value);
+                setFilters({
+                  ...filters,
+                  minLoanAmount: preset ? String(preset.min) : "",
+                  maxLoanAmount: preset && preset.max != null ? String(preset.max) : "",
+                });
+              }}
+              className={`w-full rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                (filters.minLoanAmount || filters.maxLoanAmount) ? "border-indigo-300 bg-indigo-50/40 font-semibold" : "border-slate-300"
+              }`}
+            >
+              <option value="">All amounts</option>
+              {LOAN_PRESETS.map((p) => (
+                <option key={p.label} value={p.label}>{p.label}</option>
+              ))}
+            </select>
           </div>
 
-          {/* Salary range */}
+          {/* Salary */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Salary (₹)</label>
-            <div className={`flex items-center gap-1 rounded-md border bg-white px-2 py-1 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 ${
-              (filters.minSalary || filters.maxSalary) ? "border-indigo-300 bg-indigo-50/40" : "border-slate-300"
-            }`}>
-              <input
-                type="number"
-                placeholder="Min"
-                value={filters.minSalary}
-                onChange={(e) => setFilters({ ...filters, minSalary: e.target.value })}
-                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-              />
-              <span className="text-slate-400">–</span>
-              <input
-                type="number"
-                placeholder="Max"
-                value={filters.maxSalary}
-                onChange={(e) => setFilters({ ...filters, maxSalary: e.target.value })}
-                className="w-20 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
-              />
-              {(filters.minSalary || filters.maxSalary) && (
-                <button
-                  onClick={() => setFilters({ ...filters, minSalary: "", maxSalary: "" })}
-                  className="ml-0.5 grid h-4 w-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  aria-label="Clear salary range"
-                >
-                  <IconX className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {SALARY_PRESETS.map((p) => {
-                const active = isPresetActive(filters.minSalary, filters.maxSalary, p);
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() =>
-                      setFilters({
-                        ...filters,
-                        minSalary: active ? "" : String(p.min),
-                        maxSalary: active ? "" : (p.max != null ? String(p.max) : ""),
-                      })
-                    }
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
-                      active
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
+            <select
+              value={activePresetLabel(filters.minSalary, filters.maxSalary, SALARY_PRESETS)}
+              onChange={(e) => {
+                const preset = SALARY_PRESETS.find((p) => p.label === e.target.value);
+                setFilters({
+                  ...filters,
+                  minSalary: preset ? String(preset.min) : "",
+                  maxSalary: preset && preset.max != null ? String(preset.max) : "",
+                });
+              }}
+              className={`w-full rounded-md border bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
+                (filters.minSalary || filters.maxSalary) ? "border-indigo-300 bg-indigo-50/40 font-semibold" : "border-slate-300"
+              }`}
+            >
+              <option value="">All salaries</option>
+              {SALARY_PRESETS.map((p) => (
+                <option key={p.label} value={p.label}>{p.label}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -594,17 +585,17 @@ export default function LeadsPage() {
                   />
                 </th>
               )}
-              <th className="px-2 py-2.5 text-slate-400">#</th>
-              <th className="px-2.5 py-2.5">Name</th>
-              <th className="px-2.5 py-2.5">Phone</th>
-              <th className="px-2.5 py-2.5">Pin</th>
-              <th className="px-2.5 py-2.5">Purpose</th>
-              <th className="px-2.5 py-2.5 text-right">Loan ₹</th>
-              <th className="px-2.5 py-2.5 text-right">Salary ₹</th>
-              <th className="px-2.5 py-2.5">Stage</th>
-              <th className="px-2.5 py-2.5">Assigned</th>
-              <th className="px-2.5 py-2.5">Disposition</th>
-              <th className="px-2.5 py-2.5">Actions</th>
+              <th className="whitespace-nowrap px-2 py-2.5 text-slate-400">#</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Name</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Phone</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Pin</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Purpose</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-right">Loan ₹</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-right">Salary ₹</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Stage</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Assigned</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Disposition</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5">Actions</th>
             </tr>
           </thead>
           {loading && leads.length === 0 ? (
@@ -645,19 +636,9 @@ export default function LeadsPage() {
                   <td className="whitespace-nowrap px-2.5 py-2 text-right text-xs font-medium text-slate-700">{formatINR(l.loanAmount)}</td>
                   <td className="whitespace-nowrap px-2.5 py-2 text-right text-xs text-slate-600">{formatINR(l.monthlyIncome)}</td>
                   <td className="px-2.5 py-2">
-                    {editingId === l.id ? (
-                      <select
-                        value={editForm.stage ?? l.stage}
-                        onChange={(e) => setEditForm({ ...editForm, stage: e.target.value })}
-                        className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-900"
-                      >
-                        {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${STAGE_COLORS[l.stage]}`}>
-                        {l.stage}
-                      </span>
-                    )}
+                    <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${STAGE_COLORS[l.stage]}`}>
+                      {l.stage}
+                    </span>
                   </td>
                   <td className="px-2.5 py-2 text-slate-600">
                     {canAssign ? (
@@ -674,62 +655,19 @@ export default function LeadsPage() {
                     ) : <span className="text-xs">{l.agent ? l.agent.name : "—"}</span>}
                   </td>
                   <td className="px-2.5 py-2 text-slate-600">
-                    {editingId === l.id ? (
-                      <div className="flex flex-col gap-1">
-                        <select
-                          value={editForm.disposition ?? l.disposition ?? ""}
-                          onChange={(e) => setEditForm({ ...editForm, disposition: e.target.value })}
-                          className="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-900"
-                        >
-                          <option value="">— None —</option>
-                          {DISPOSITION_OPTIONS.map((g) => (
-                            <optgroup key={g.group} label={g.group}>
-                              {g.options.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        {((editForm.disposition ?? l.disposition) === "callback" ||
-                          (editForm.stage ?? l.stage) === "follow_up") && (
-                          <input
-                            type="datetime-local"
-                            value={
-                              editForm.nextFollowUpAt ??
-                              (l.nextFollowUpAt
-                                ? new Date(l.nextFollowUpAt).toISOString().slice(0, 16)
-                                : "")
-                            }
-                            onChange={(e) => setEditForm({ ...editForm, nextFollowUpAt: e.target.value })}
-                            className="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] text-slate-900"
-                            title="Schedule follow-up"
-                          />
-                        )}
-                      </div>
-                    ) : l.disposition ? (
+                    {l.disposition ? (
                       <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium ${DISPOSITION_COLORS[l.disposition] || "bg-slate-100 text-slate-700"}`}>
                         {DISPOSITION_LABELS[l.disposition] || l.disposition}
                       </span>
                     ) : <span className="text-xs">—</span>}
                   </td>
                   <td className="px-2.5 py-2">
-                    {editingId === l.id ? (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => handleStatusSave(l.id)}
-                          className="rounded bg-emerald-600 px-1.5 py-0.5 text-[11px] text-white hover:bg-emerald-700"
-                        >Save</button>
-                        <button
-                          onClick={() => { setEditingId(null); setEditForm({}); }}
-                          className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50"
-                        >Cancel</button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => { setEditingId(l.id); setEditForm({}); }}
-                        className="rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
-                      >Update</button>
-                    )}
+                    <button
+                      onClick={() => setModalLead(l)}
+                      className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                    >
+                      Update
+                    </button>
                   </td>
                 </tr>
               );
@@ -821,6 +759,14 @@ export default function LeadsPage() {
           </div>
         )}
       </div>
+
+      {modalLead && (
+        <LeadUpdateModal
+          lead={modalLead}
+          onClose={() => setModalLead(null)}
+          onSaved={handleModalSaved}
+        />
+      )}
     </div>
   );
 }
